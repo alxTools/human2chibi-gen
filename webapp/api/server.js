@@ -147,7 +147,7 @@ export default async function handler(req, res) {
 
     res.status(404).json({ error: 'Not found' });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
+    console.error('Handler error:', e);
+    res.status(500).json({ error: e.message, stack: e.stack?.split('\n').slice(0,3) });
   }
 }
