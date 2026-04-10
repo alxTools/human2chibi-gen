@@ -1,0 +1,149 @@
+const DB_NAME = 'chibi-gen';
+const DB_VERSION = 2;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('projects')) {
+        const store = db.createObjectStore('projects', { keyPath: 'id' });
+        store.createIndex('updatedAt', 'updatedAt');
+      }
+      // v2: character store for finalized named characters
+      if (!db.objectStoreNames.contains('characters')) {
+        const charStore = db.createObjectStore('characters', { keyPath: 'tag' });
+        charStore.createIndex('name', 'name');
+        charStore.createIndex('createdAt', 'createdAt');
+      }
+    };
+  });
+}
+
+function tx(storeName, mode = 'readonly') {
+  return openDB().then(db => {
+    const t = db.transaction(storeName, mode);
+    return t.objectStore(storeName);
+  });
+}
+
+/**
+ * Project shape:
+ * {
+ *   id: string,
+ *   name: string,
+ *   createdAt: number,
+ *   updatedAt: number,
+ *   originalPhoto: string,        // base64 data-url of uploaded photo
+ *   model: string,                // gemini model id used
+ *   characterTag: string|null,    // @tag if finalized
+ *   versions: [                   // edit iterations
+ *     { id, prompt, image, timestamp, isFinal }
+ *   ],
+ *   storyNodes: [                 // story scenes
+ *     { text, image, timestamp }
+ *   ]
+ * }
+ *
+ * Character shape (finalized):
+ * {
+ *   tag: string,          // e.g. "galantito" (lowercase, no spaces)
+ *   name: string,         // e.g. "Galantito"
+ *   image: string,        // final character sheet data-url
+ *   projectId: string,
+ *   createdAt: number,
+ * }
+ */
+
+// ─── Projects ───
+
+export async function saveProject(project) {
+  project.updatedAt = Date.now();
+  const store = await tx('projects', 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.put(project);
+    req.onsuccess = () => resolve(project);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getProject(id) {
+  const store = await tx('projects');
+  return new Promise((resolve, reject) => {
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function listProjects() {
+  const store = await tx('projects');
+  return new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve((req.result || []).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteProject(id) {
+  const store = await tx('projects', 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export function createProject(originalPhoto, model) {
+  return {
+    id: crypto.randomUUID(),
+    name: `Chibi ${new Date().toLocaleString()}`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    originalPhoto,
+    model,
+    characterTag: null,
+    versions: [],
+    storyNodes: [],
+  };
+}
+
+// ─── Characters (finalized, named) ───
+
+export async function saveCharacter(character) {
+  const store = await tx('characters', 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.put(character);
+    req.onsuccess = () => resolve(character);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getCharacter(tag) {
+  const store = await tx('characters');
+  return new Promise((resolve, reject) => {
+    const req = store.get(tag);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function listCharacters() {
+  const store = await tx('characters');
+  return new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve((req.result || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteCharacter(tag) {
+  const store = await tx('characters', 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.delete(tag);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}

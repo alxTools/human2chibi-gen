@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git remote:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(npm run:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(netstat -ano)",
+      "Bash(xargs -I{} taskkill /PID {} /F)",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5173,5174,5175 -ErrorAction SilentlyContinue | Select-Object LocalPort,OwningProcess\")",
+      "Bash(git log:*)",
+      "Bash(node server/index.js)",
+      "Bash(curl -s http://localhost:3001/api/projects)",
+      "Bash(curl -s http://localhost:3001/api/characters)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(len\\(d\\),''''characters''''\\); [print\\(f''''  @{c[tag]} - {c[name]}''''\\) for c in d]\")",
+      "Bash(npx kill-port:*)",
+      "Bash(taskkill //F //IM \"node.exe\" //FI \"WINDOWTITLE eq *vite*\")",
+      "Bash(rm -rf node_modules/.vite)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(node server/migrate-from-mysql.js)",
+      "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); console.log\\(d.length+'''' characters''''\\); d.forEach\\(c=>console.log\\(''''  @''''+c.tag\\)\\)\")",
+      "Bash(del \"C:\\\\Users\\\\AlexSerrano\\\\Dropbox\\\\.git\\\\index.lock\")",
+      "Read(//c/Users/AlexSerrano/Dropbox/.git/**)",
+      "Bash(Remove-Item -Force \"C:/Users/AlexSerrano/Dropbox/.git/index.lock\")",
+      "Bash(cp -r \"C:/Users/AlexSerrano/Dropbox/VIBE-CODING/Antigravity/human2chibi-gen/webapp\" \"C:/Users/AlexSerrano/AppData/Local/Temp/human2chibi-export/\")",
+      "Bash(cp -r \"C:/Users/AlexSerrano/Dropbox/VIBE-CODING/Antigravity/human2chibi-gen/.claude\" \"C:/Users/AlexSerrano/AppData/Local/Temp/human2chibi-export/\")"
+    ]
+  }
+}
