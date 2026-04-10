@@ -43,24 +43,7 @@ async function exec(q, params = []) {
   return r;
 }
 
-let _ready = false;
-async function ensureTables() {
-  if (_ready) return;
-  await sql([
-    { q: `CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-      original_photo TEXT, model TEXT DEFAULT '', character_tag TEXT DEFAULT NULL,
-      versions TEXT NOT NULL DEFAULT '[]', story_nodes TEXT NOT NULL DEFAULT '[]',
-      audio_analysis TEXT DEFAULT NULL
-    )` },
-    { q: `CREATE TABLE IF NOT EXISTS characters (
-      tag TEXT PRIMARY KEY, name TEXT NOT NULL, image TEXT NOT NULL,
-      project_id TEXT DEFAULT NULL, created_at INTEGER NOT NULL
-    )` },
-  ]);
-  _ready = true;
-}
+// Tables already exist (created during migration) — no need to create on every request
 
 function dbToProject(row) {
   return {
@@ -105,7 +88,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    await ensureTables();
 
     // GET /api/projects
     if (req.method === 'GET' && url === '/api/projects') {
