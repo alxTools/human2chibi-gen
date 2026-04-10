@@ -1,4 +1,4 @@
-import mysql from 'mysql2/promise';
+import { createClient } from '@libsql/client';
 import express from 'express';
 import cors from 'cors';
 
@@ -6,54 +6,77 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-let pool;
-function getPool() {
-  if (!pool) {
-    pool = mysql.createPool({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      database: process.env.DB_NAME,
-      port: Number(process.env.DB_PORT) || 3306,
-      waitForConnections: true,
-      connectionLimit: 5,
+let db;
+function getDB() {
+  if (!db) {
+    db = createClient({
+      url: process.env.TURSO_URL,
+      authToken: process.env.TURSO_TOKEN,
     });
   }
-  return pool;
+  return db;
+}
+
+// ── Bootstrap tables ──
+async function ensureTables() {
+  const c = getDB();
+  await c.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      original_photo TEXT,
+      model TEXT DEFAULT '',
+      character_tag TEXT DEFAULT NULL,
+      versions TEXT NOT NULL DEFAULT '[]',
+      story_nodes TEXT NOT NULL DEFAULT '[]',
+      audio_analysis TEXT DEFAULT NULL
+    );
+    CREATE TABLE IF NOT EXISTS characters (
+      tag TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      image TEXT NOT NULL,
+      project_id TEXT DEFAULT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `);
 }
 
 // ── Projects ──
 
 app.get('/api/projects', async (_req, res) => {
   try {
-    const [rows] = await getPool().query('SELECT * FROM projects ORDER BY updated_at DESC');
-    res.json(rows.map(dbToProject));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    await ensureTables();
+    const result = await getDB().execute('SELECT * FROM projects ORDER BY updated_at DESC');
+    res.json(result.rows.map(dbToProject));
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/projects/:id', async (req, res) => {
   try {
+    await ensureTables();
     const p = req.body;
     p.updatedAt = Date.now();
-    await getPool().query(
-      `INSERT INTO projects (id, name, created_at, updated_at, original_photo, model, character_tag, versions, story_nodes, audio_analysis)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         name=VALUES(name), updated_at=VALUES(updated_at), original_photo=VALUES(original_photo),
-         model=VALUES(model), character_tag=VALUES(character_tag), versions=VALUES(versions),
-         story_nodes=VALUES(story_nodes), audio_analysis=VALUES(audio_analysis)`,
-      [p.id, p.name || '', p.createdAt, p.updatedAt, p.originalPhoto || '',
-       p.model || '', p.characterTag || null,
-       JSON.stringify(p.versions || []), JSON.stringify(p.storyNodes || []),
-       p.audioAnalysis ? JSON.stringify(p.audioAnalysis) : null]
-    );
+    await getDB().execute({
+      sql: `INSERT INTO projects (id, name, created_at, updated_at, original_photo, model, character_tag, versions, story_nodes, audio_analysis)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              name=excluded.name, updated_at=excluded.updated_at, original_photo=excluded.original_photo,
+              model=excluded.model, character_tag=excluded.character_tag, versions=excluded.versions,
+              story_nodes=excluded.story_nodes, audio_analysis=excluded.audio_analysis`,
+      args: [p.id, p.name || '', p.createdAt, p.updatedAt, p.originalPhoto || '',
+             p.model || '', p.characterTag || null,
+             JSON.stringify(p.versions || []), JSON.stringify(p.storyNodes || []),
+             p.audioAnalysis ? JSON.stringify(p.audioAnalysis) : null],
+    });
     res.json(p);
   } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/projects/:id', async (req, res) => {
   try {
-    await getPool().query('DELETE FROM projects WHERE id = ?', [req.params.id]);
+    await getDB().execute({ sql: 'DELETE FROM projects WHERE id = ?', args: [req.params.id] });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -62,27 +85,29 @@ app.delete('/api/projects/:id', async (req, res) => {
 
 app.get('/api/characters', async (_req, res) => {
   try {
-    const [rows] = await getPool().query('SELECT * FROM characters_ ORDER BY created_at DESC');
-    res.json(rows.map(dbToCharacter));
+    await ensureTables();
+    const result = await getDB().execute('SELECT * FROM characters ORDER BY created_at DESC');
+    res.json(result.rows.map(dbToCharacter));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/characters/:tag', async (req, res) => {
   try {
+    await ensureTables();
     const c = req.body;
-    await getPool().query(
-      `INSERT INTO characters_ (tag, name, image, project_id, created_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE name=VALUES(name), image=VALUES(image), project_id=VALUES(project_id)`,
-      [c.tag, c.name, c.image, c.projectId || null, c.createdAt || Date.now()]
-    );
+    await getDB().execute({
+      sql: `INSERT INTO characters (tag, name, image, project_id, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(tag) DO UPDATE SET name=excluded.name, image=excluded.image, project_id=excluded.project_id`,
+      args: [c.tag, c.name, c.image, c.projectId || null, c.createdAt || Date.now()],
+    });
     res.json(c);
   } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/characters/:tag', async (req, res) => {
   try {
-    await getPool().query('DELETE FROM characters_ WHERE tag = ?', [req.params.tag]);
+    await getDB().execute({ sql: 'DELETE FROM characters WHERE tag = ?', args: [req.params.tag] });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -94,9 +119,9 @@ function dbToProject(row) {
     id: row.id, name: row.name,
     createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     originalPhoto: row.original_photo, model: row.model, characterTag: row.character_tag,
-    versions: typeof row.versions === 'string' ? JSON.parse(row.versions) : (row.versions || []),
-    storyNodes: typeof row.story_nodes === 'string' ? JSON.parse(row.story_nodes) : (row.story_nodes || []),
-    audioAnalysis: row.audio_analysis ? (typeof row.audio_analysis === 'string' ? JSON.parse(row.audio_analysis) : row.audio_analysis) : null,
+    versions: JSON.parse(row.versions || '[]'),
+    storyNodes: JSON.parse(row.story_nodes || '[]'),
+    audioAnalysis: row.audio_analysis ? JSON.parse(row.audio_analysis) : null,
   };
 }
 
