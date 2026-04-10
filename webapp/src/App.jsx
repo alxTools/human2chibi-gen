@@ -22,11 +22,14 @@ function App() {
   // Project history sidebar
   const [savedProjects, setSavedProjects] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
   // Saved characters (finalized)
   const [characters, setCharacters] = useState([]);
 
-  useEffect(() => { loadProjectList(); loadCharacterList(); }, []);
+  useEffect(() => {
+    Promise.all([loadProjectList(), loadCharacterList()]).finally(() => setIsLoadingHistory(false));
+  }, []);
 
   async function loadProjectList() {
     try { setSavedProjects(await listProjects()); } catch (e) { console.error(e); }
@@ -232,9 +235,11 @@ function App() {
           <button
             className="btn-secondary"
             onClick={() => { const next = !showHistory; setShowHistory(next); if (next) { loadProjectList(); loadCharacterList(); } }}
-            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
           >
-            {showHistory ? 'Close' : `History (${savedProjects.length})`}
+            {isLoadingHistory
+              ? <><div className="loader" style={{ width: '12px', height: '12px', margin: 0, borderWidth: '2px' }} /> Loading...</>
+              : showHistory ? 'Close' : `History (${savedProjects.length})`}
           </button>
         </div>
       </div>
