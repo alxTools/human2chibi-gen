@@ -71,9 +71,19 @@ export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
+  const url = req.url.replace(/\?.*$/, '');
+
+  // Debug: check env vars
+  if (url === '/api/debug') {
+    return res.status(200).json({
+      TURSO_URL: process.env.TURSO_URL ? process.env.TURSO_URL.slice(0, 30) + '...' : 'MISSING',
+      TURSO_TOKEN: process.env.TURSO_TOKEN ? 'SET' : 'MISSING',
+      NODE_ENV: process.env.NODE_ENV,
+    });
+  }
+
   try {
     await ensureTables();
-    const url = req.url.replace(/\?.*$/, '');
     const db = getDB();
 
     // GET /api/projects
