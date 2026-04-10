@@ -1,26 +1,20 @@
 import { createClient } from '@libsql/client';
-import express from 'express';
-import cors from 'cors';
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-
-let db;
+let _db;
 function getDB() {
-  if (!db) {
-    db = createClient({
+  if (!_db) {
+    _db = createClient({
       url: process.env.TURSO_URL,
       authToken: process.env.TURSO_TOKEN,
     });
   }
-  return db;
+  return _db;
 }
 
-// ── Bootstrap tables ──
+let _tablesReady = false;
 async function ensureTables() {
-  const c = getDB();
-  await c.executeMultiple(`
+  if (_tablesReady) return;
+  await getDB().executeMultiple(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
@@ -41,78 +35,8 @@ async function ensureTables() {
       created_at INTEGER NOT NULL
     );
   `);
+  _tablesReady = true;
 }
-
-// ── Projects ──
-
-app.get('/api/projects', async (_req, res) => {
-  try {
-    await ensureTables();
-    const result = await getDB().execute('SELECT * FROM projects ORDER BY updated_at DESC');
-    res.json(result.rows.map(dbToProject));
-  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/projects/:id', async (req, res) => {
-  try {
-    await ensureTables();
-    const p = req.body;
-    p.updatedAt = Date.now();
-    await getDB().execute({
-      sql: `INSERT INTO projects (id, name, created_at, updated_at, original_photo, model, character_tag, versions, story_nodes, audio_analysis)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-              name=excluded.name, updated_at=excluded.updated_at, original_photo=excluded.original_photo,
-              model=excluded.model, character_tag=excluded.character_tag, versions=excluded.versions,
-              story_nodes=excluded.story_nodes, audio_analysis=excluded.audio_analysis`,
-      args: [p.id, p.name || '', p.createdAt, p.updatedAt, p.originalPhoto || '',
-             p.model || '', p.characterTag || null,
-             JSON.stringify(p.versions || []), JSON.stringify(p.storyNodes || []),
-             p.audioAnalysis ? JSON.stringify(p.audioAnalysis) : null],
-    });
-    res.json(p);
-  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
-});
-
-app.delete('/api/projects/:id', async (req, res) => {
-  try {
-    await getDB().execute({ sql: 'DELETE FROM projects WHERE id = ?', args: [req.params.id] });
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ── Characters ──
-
-app.get('/api/characters', async (_req, res) => {
-  try {
-    await ensureTables();
-    const result = await getDB().execute('SELECT * FROM characters ORDER BY created_at DESC');
-    res.json(result.rows.map(dbToCharacter));
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/characters/:tag', async (req, res) => {
-  try {
-    await ensureTables();
-    const c = req.body;
-    await getDB().execute({
-      sql: `INSERT INTO characters (tag, name, image, project_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(tag) DO UPDATE SET name=excluded.name, image=excluded.image, project_id=excluded.project_id`,
-      args: [c.tag, c.name, c.image, c.projectId || null, c.createdAt || Date.now()],
-    });
-    res.json(c);
-  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
-});
-
-app.delete('/api/characters/:tag', async (req, res) => {
-  try {
-    await getDB().execute({ sql: 'DELETE FROM characters WHERE tag = ?', args: [req.params.tag] });
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ── Helpers ──
 
 function dbToProject(row) {
   return {
@@ -129,4 +53,91 @@ function dbToCharacter(row) {
   return { tag: row.tag, name: row.name, image: row.image, projectId: row.project_id, createdAt: Number(row.created_at) };
 }
 
-export default app;
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+async function parseBody(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve({}); } });
+  });
+}
+
+export default async function handler(req, res) {
+  cors(res);
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  try {
+    await ensureTables();
+    const url = req.url.replace(/\?.*$/, '');
+    const db = getDB();
+
+    // GET /api/projects
+    if (req.method === 'GET' && url === '/api/projects') {
+      const result = await db.execute('SELECT * FROM projects ORDER BY updated_at DESC');
+      return res.status(200).json(result.rows.map(dbToProject));
+    }
+
+    // PUT /api/projects/:id
+    if (req.method === 'PUT' && url.match(/^\/api\/projects\/[^/]+$/)) {
+      const id = url.split('/').pop();
+      const p = await parseBody(req);
+      p.updatedAt = Date.now();
+      await db.execute({
+        sql: `INSERT INTO projects (id, name, created_at, updated_at, original_photo, model, character_tag, versions, story_nodes, audio_analysis)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name, updated_at=excluded.updated_at, original_photo=excluded.original_photo,
+                model=excluded.model, character_tag=excluded.character_tag, versions=excluded.versions,
+                story_nodes=excluded.story_nodes, audio_analysis=excluded.audio_analysis`,
+        args: [id, p.name || '', p.createdAt || Date.now(), p.updatedAt,
+               p.originalPhoto || '', p.model || '', p.characterTag || null,
+               JSON.stringify(p.versions || []), JSON.stringify(p.storyNodes || []),
+               p.audioAnalysis ? JSON.stringify(p.audioAnalysis) : null],
+      });
+      return res.status(200).json(p);
+    }
+
+    // DELETE /api/projects/:id
+    if (req.method === 'DELETE' && url.match(/^\/api\/projects\/[^/]+$/)) {
+      const id = url.split('/').pop();
+      await db.execute({ sql: 'DELETE FROM projects WHERE id = ?', args: [id] });
+      return res.status(200).json({ ok: true });
+    }
+
+    // GET /api/characters
+    if (req.method === 'GET' && url === '/api/characters') {
+      const result = await db.execute('SELECT * FROM characters ORDER BY created_at DESC');
+      return res.status(200).json(result.rows.map(dbToCharacter));
+    }
+
+    // PUT /api/characters/:tag
+    if (req.method === 'PUT' && url.match(/^\/api\/characters\/[^/]+$/)) {
+      const tag = url.split('/').pop();
+      const c = await parseBody(req);
+      await db.execute({
+        sql: `INSERT INTO characters (tag, name, image, project_id, created_at)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(tag) DO UPDATE SET name=excluded.name, image=excluded.image, project_id=excluded.project_id`,
+        args: [tag, c.name, c.image, c.projectId || null, c.createdAt || Date.now()],
+      });
+      return res.status(200).json(c);
+    }
+
+    // DELETE /api/characters/:tag
+    if (req.method === 'DELETE' && url.match(/^\/api\/characters\/[^/]+$/)) {
+      const tag = url.split('/').pop();
+      await db.execute({ sql: 'DELETE FROM characters WHERE tag = ?', args: [tag] });
+      return res.status(200).json({ ok: true });
+    }
+
+    res.status(404).json({ error: 'Not found' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+}
