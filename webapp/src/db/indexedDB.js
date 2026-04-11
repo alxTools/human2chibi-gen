@@ -3,7 +3,24 @@ const LOCAL_API = 'http://localhost:3001/api';
 const TURSO_URL = import.meta.env.VITE_TURSO_URL;
 const TURSO_TOKEN = import.meta.env.VITE_TURSO_TOKEN;
 
-// In dev: hit local Express/SQLite. In prod: hit Turso HTTP directly (no cold start).
+
+// ─── localStorage cache (stale-while-revalidate) ───────────────────────────
+// List endpoints (/projects, /characters) are cached so they return instantly
+// on repeat visits. The cache is silently refreshed after each remote fetch.
+const CACHE_KEYS = { '/projects': 'h2c_cache_projects', '/characters': 'h2c_cache_characters' };
+
+function cacheRead(path) {
+  const key = CACHE_KEYS[path];
+  if (!key) return null;
+  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+}
+function cacheWrite(path, data) {
+  const key = CACHE_KEYS[path];
+  if (!key || !Array.isArray(data)) return;
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+}
+
+// In dev: hit local Express/SQLite. In prod: hit Turso HTTP directly.
 async function apiFetch(path, opts = {}) {
   if (IS_DEV) {
     const res = await fetch(`${LOCAL_API}${path}`, {
@@ -14,10 +31,27 @@ async function apiFetch(path, opts = {}) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.error || `API error ${res.status}`);
     }
-    return res.json();
+    const data = await res.json();
+    cacheWrite(path, data);
+    return data;
   }
   // Production: Turso HTTP REST API
-  return tursoFetch(path, opts);
+  const data = await tursoFetch(path, opts);
+  cacheWrite(path, data);
+  return data;
+}
+
+// Stale-while-revalidate: return cache instantly, refresh in background.
+// Used only for list GETs — mutations always go through apiFetch directly.
+async function apiFetchSWR(path) {
+  const cached = cacheRead(path);
+  if (cached) {
+    // Return cache now, silently refresh in background
+    apiFetch(path).catch(() => {});
+    return cached;
+  }
+  // No cache: wait for real fetch
+  return apiFetch(path);
 }
 
 async function tursoSQL(statements) {
@@ -40,6 +74,14 @@ async function tursoSQL(statements) {
   });
   if (!res.ok) throw new Error(`Turso ${res.status}: ${await res.text()}`);
   return (await res.json()).results;
+}
+
+// Warm up Turso 3s after page load so the DB is hot by the time History opens.
+// Re-ping every 4 minutes to keep it warm while the tab stays open.
+if (!IS_DEV && TURSO_URL && TURSO_TOKEN) {
+  const warmup = () => tursoSQL([{ q: 'SELECT 1', params: [] }]).catch(() => {});
+  setTimeout(warmup, 3000);
+  setInterval(warmup, 4 * 60 * 1000);
 }
 
 async function tursoQuery(q, params = []) {
@@ -168,7 +210,7 @@ export async function getProject(id) {
 }
 
 export async function listProjects() {
-  return apiFetch('/projects');
+  return apiFetchSWR('/projects');
 }
 
 export async function deleteProject(id) {
@@ -203,7 +245,7 @@ export async function getCharacter(tag) {
 }
 
 export async function listCharacters() {
-  return apiFetch('/characters');
+  return apiFetchSWR('/characters');
 }
 
 export async function deleteCharacter(tag) {
