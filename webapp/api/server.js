@@ -1,6 +1,10 @@
 // Turso HTTP API — no native deps, works in any serverless runtime
-const TURSO_URL = process.env.TURSO_URL?.replace(/^libsql:\/\//, 'https://');
-const TURSO_TOKEN = process.env.TURSO_TOKEN;
+const TURSO_URL = (process.env.TURSO_URL || process.env.VITE_TURSO_URL)?.replace(/^libsql:\/\//, 'https://');
+const TURSO_TOKEN = process.env.TURSO_TOKEN || process.env.VITE_TURSO_TOKEN;
+
+if (!TURSO_URL || !TURSO_TOKEN) {
+  console.error('TURSO_URL or TURSO_TOKEN missing from environment variables');
+}
 
 async function sql(statements) {
   // statements: array of { q: string, params: array }

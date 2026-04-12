@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.2",
-    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
@@ -21,6 +20,7 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "better-sqlite3": "^12.8.0",
     "@eslint/js": "^9.33.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",

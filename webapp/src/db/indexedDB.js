@@ -1,6 +1,6 @@
 const IS_DEV = import.meta.env.DEV;
 const LOCAL_API = 'http://localhost:3001/api';
-const TURSO_URL = import.meta.env.VITE_TURSO_URL;
+const TURSO_URL = import.meta.env.VITE_TURSO_URL?.replace(/^libsql:\/\//, 'https://');
 const TURSO_TOKEN = import.meta.env.VITE_TURSO_TOKEN;
 
 
