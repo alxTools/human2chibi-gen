@@ -20,23 +20,21 @@ function cacheWrite(path, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 }
 
-// In dev: hit local Express/SQLite. In prod: hit Turso HTTP directly.
+// In prod: hit Vercel Serverless Function (proxy to Turso). In dev: hit local Express/SQLite.
 async function apiFetch(path, opts = {}) {
-  if (IS_DEV) {
-    const res = await fetch(`${LOCAL_API}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
-      ...opts,
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `API error ${res.status}`);
-    }
-    const data = await res.json();
-    cacheWrite(path, data);
-    return data;
+  // Ensure path starts with /api (local server already includes it in LOCAL_API)
+  const apiPath = path.startsWith('/api') ? path : `/api${path}`;
+  const url = IS_DEV ? `${LOCAL_API}${path}` : apiPath;
+
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `API error ${res.status}`);
   }
-  // Production: Turso HTTP REST API
-  const data = await tursoFetch(path, opts);
+  const data = await res.json();
   cacheWrite(path, data);
   return data;
 }

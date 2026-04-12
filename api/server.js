@@ -78,9 +78,38 @@ async function parseBody(req) {
   });
 }
 
+// Ensure tables exist
+async function ensureTables() {
+  await exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      original_photo TEXT,
+      model TEXT DEFAULT '',
+      character_tag TEXT DEFAULT NULL,
+      versions TEXT NOT NULL DEFAULT '[]',
+      story_nodes TEXT NOT NULL DEFAULT '[]',
+      audio_analysis TEXT DEFAULT NULL
+    )
+  `);
+  await exec(`
+    CREATE TABLE IF NOT EXISTS characters (
+      tag TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      image TEXT NOT NULL,
+      project_id TEXT DEFAULT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+}
+
 export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  await ensureTables().catch(e => console.error('Table init error:', e));
 
   const url = req.url.replace(/\?.*$/, '');
 
